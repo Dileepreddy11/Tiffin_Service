@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Navigation from '@/components/Navigation'
 import AdminHeader from '@/components/AdminHeader'
+import AuditLogsViewer from '@/components/AuditLogsViewer'
 import Link from 'next/link'
 import { Edit, Trash2, Plus, Save, X } from 'lucide-react'
 import {
@@ -16,7 +17,7 @@ import {
   updateOrderStatus,
   getCustomers,
   getRewardTiers,
-} from '@/lib/storage'
+} from '@/lib/firebase-storage-wrapper'
 
 type Tab = 'menu' | 'orders' | 'customers'
 
@@ -36,10 +37,19 @@ export default function AdminPanel() {
     loadData()
   }, [])
 
-  const loadData = () => {
-    setMenuItemsState(getMenuItems())
-    setOrdersState(getOrders())
-    setCustomersState(getCustomers())
+  const loadData = async () => {
+    try {
+      const [menuData, ordersData, customersData] = await Promise.all([
+        getMenuItems(),
+        getOrders(),
+        getCustomers(),
+      ])
+      setMenuItemsState(menuData)
+      setOrdersState(ordersData)
+      setCustomersState(customersData)
+    } catch (error) {
+      console.error('[v0] Error loading data:', error)
+    }
   }
 
   // Menu Management
@@ -61,39 +71,56 @@ export default function AdminPanel() {
     setShowAddForm(true)
   }
 
-  const handleSaveMenuItem = () => {
+  const handleSaveMenuItem = async () => {
     if (!editingItem || !editingItem.name || editingItem.price <= 0) {
       alert('Please fill all required fields')
       return
     }
 
-    const items = getMenuItems()
-    if (editingItem.isNew) {
-      items.push(editingItem)
-    } else {
-      const index = items.findIndex((i) => i.id === editingItem.id)
-      if (index !== -1) {
-        items[index] = editingItem
+    try {
+      const items = await getMenuItems()
+      if (editingItem.isNew) {
+        items.push(editingItem)
+      } else {
+        const index = items.findIndex((i) => i.id === editingItem.id)
+        if (index !== -1) {
+          items[index] = editingItem
+        }
       }
-    }
 
-    setMenuItems(items)
-    setMenuItemsState(items)
-    setEditingItem(null)
-    setShowAddForm(false)
+      await setMenuItems(items)
+      setMenuItemsState(items)
+      setEditingItem(null)
+      setShowAddForm(false)
+    } catch (error) {
+      console.error('[v0] Error saving menu item:', error)
+      alert('Error saving menu item. Please try again.')
+    }
   }
 
-  const handleDeleteMenuItem = (id: string) => {
+  const handleDeleteMenuItem = async (id: string) => {
     if (confirm('Are you sure you want to delete this item?')) {
-      removeMenuItem(id)
-      setMenuItemsState(getMenuItems())
+      try {
+        await removeMenuItem(id)
+        const updated = await getMenuItems()
+        setMenuItemsState(updated)
+      } catch (error) {
+        console.error('[v0] Error deleting menu item:', error)
+        alert('Error deleting menu item. Please try again.')
+      }
     }
   }
 
   // Order Management
-  const handleUpdateOrderStatus = (orderId: string, status: Order['status']) => {
-    updateOrderStatus(orderId, status)
-    setOrdersState(getOrders())
+  const handleUpdateOrderStatus = async (orderId: string, status: Order['status']) => {
+    try {
+      await updateOrderStatus(orderId, status)
+      const updated = await getOrders()
+      setOrdersState(updated)
+    } catch (error) {
+      console.error('[v0] Error updating order status:', error)
+      alert('Error updating order status. Please try again.')
+    }
   }
 
   const totalRevenue = orders.reduce((sum, o) => sum + o.totalPrice, 0)
@@ -162,6 +189,16 @@ export default function AdminPanel() {
             }`}
           >
             Customers & Rewards
+          </button>
+          <button
+            onClick={() => setTab('security')}
+            className={`px-6 py-3 font-bold border-b-4 transition ${
+              tab === 'security'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-primary'
+            }`}
+          >
+            Security & Audit
           </button>
         </div>
 
@@ -454,6 +491,14 @@ export default function AdminPanel() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Security & Audit */}
+        {tab === 'security' && (
+          <div>
+            <h2 className="text-2xl font-playfair font-bold text-primary mb-6">Security & Audit Logs</h2>
+            <AuditLogsViewer />
           </div>
         )}
       </section>

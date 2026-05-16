@@ -112,16 +112,11 @@ export default function AdminPanel() {
     }
   }
 
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/admin/logout', { method: 'POST' })
-    } catch (e) {
-      // Silent fail
-    }
-    setIsAuthenticated(false)
-    setShowLoginModal(true)
-    setAdminKey('')
-    setAdminPassword('')
+  const handleLogout = () => {
+    // Clear session cookie and redirect immediately
+    fetch('/api/admin/logout', { method: 'POST' }).catch(() => {})
+    // Redirect to home page
+    window.location.href = '/'
   }
 
   useEffect(() => {

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Navigation from '@/components/Navigation'
+import AdminHeader from '@/components/AdminHeader'
 import Link from 'next/link'
 import { Edit, Trash2, Plus, Save, X } from 'lucide-react'
 import {
@@ -101,6 +102,7 @@ export default function AdminPanel() {
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-background via-blue-50 to-background">
+      <AdminHeader />
       <Navigation />
 
       <section className="max-w-7xl mx-auto px-4 py-12">

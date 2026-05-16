@@ -1,11 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Navigation from '@/components/Navigation'
-import AdminHeader from '@/components/AdminHeader'
-import AuditLogsViewer from '@/components/AuditLogsViewer'
 import Link from 'next/link'
-import { Edit, Trash2, Plus, Save, X } from 'lucide-react'
+import { Edit, Trash2, Plus, Save, X, LogOut } from 'lucide-react'
 import {
   MenuItem,
   Order,
@@ -17,7 +16,8 @@ import {
   updateOrderStatus,
   getCustomers,
   getRewardTiers,
-} from '@/lib/firebase-storage-wrapper'
+} from '@/lib/storage'
+import { verifyAdminCredentialsSimple, createSessionTokenSimple, logLoginAttemptSimple } from '@/lib/auth-simple'
 
 type Tab = 'menu' | 'orders' | 'customers'
 
@@ -26,6 +26,14 @@ interface EditingItem extends MenuItem {
 }
 
 export default function AdminPanel() {
+  const router = useRouter()
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [showLoginModal, setShowLoginModal] = useState(true)
+  const [adminKey, setAdminKey] = useState('')
+  const [adminPassword, setAdminPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [loginLoading, setLoginLoading] = useState(false)
+  
   const [tab, setTab] = useState<Tab>('menu')
   const [menuItems, setMenuItemsState] = useState<MenuItem[]>([])
   const [orders, setOrdersState] = useState<Order[]>([])
@@ -33,23 +41,97 @@ export default function AdminPanel() {
   const [editingItem, setEditingItem] = useState<EditingItem | null>(null)
   const [showAddForm, setShowAddForm] = useState(false)
 
+  // Check if already authenticated
+  useEffect(() => {
+    const checkAuth = async () => {
+      const response = await fetch('/api/admin/check-auth', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      
+      if (response.ok) {
+        setIsAuthenticated(true)
+        setShowLoginModal(false)
+      } else {
+        setShowLoginModal(true)
+      }
+    }
+    
+    checkAuth()
+  }, [])
+
+  const handleAdminLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoginError('')
+    setLoginLoading(true)
+
+    try {
+      const credentialsValid = verifyAdminCredentialsSimple(adminKey, adminPassword)
+      
+      if (!credentialsValid) {
+        try {
+          await logLoginAttemptSimple(false, adminKey)
+        } catch (e) {
+          // Silent fail
+        }
+        setLoginError('Invalid credentials. Please try again.')
+        setLoginLoading(false)
+        return
+      }
+
+      // Create session
+      const sessionId = createSessionTokenSimple()
+      
+      // Log the attempt
+      try {
+        await logLoginAttemptSimple(true, adminKey)
+      } catch (logErr) {
+        // Silent fail
+      }
+
+      // Store session in cookies via API
+      const response = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to create session')
+      }
+
+      setIsAuthenticated(true)
+      setShowLoginModal(false)
+      setAdminKey('')
+      setAdminPassword('')
+      loadData()
+    } catch (err) {
+      setLoginError('An error occurred. Please try again.')
+      console.error('[v0] Login error:', err)
+      setLoginLoading(false)
+    }
+  }
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/admin/logout', { method: 'POST' })
+    } catch (e) {
+      // Silent fail
+    }
+    setIsAuthenticated(false)
+    setShowLoginModal(true)
+    setAdminKey('')
+    setAdminPassword('')
+  }
+
   useEffect(() => {
     loadData()
   }, [])
 
-  const loadData = async () => {
-    try {
-      const [menuData, ordersData, customersData] = await Promise.all([
-        getMenuItems(),
-        getOrders(),
-        getCustomers(),
-      ])
-      setMenuItemsState(menuData)
-      setOrdersState(ordersData)
-      setCustomersState(customersData)
-    } catch (error) {
-      console.error('[v0] Error loading data:', error)
-    }
+  const loadData = () => {
+    setMenuItemsState(getMenuItems())
+    setOrdersState(getOrders())
+    setCustomersState(getCustomers())
   }
 
   // Menu Management
@@ -71,66 +153,118 @@ export default function AdminPanel() {
     setShowAddForm(true)
   }
 
-  const handleSaveMenuItem = async () => {
+  const handleSaveMenuItem = () => {
     if (!editingItem || !editingItem.name || editingItem.price <= 0) {
       alert('Please fill all required fields')
       return
     }
 
-    try {
-      const items = await getMenuItems()
-      if (editingItem.isNew) {
-        items.push(editingItem)
-      } else {
-        const index = items.findIndex((i) => i.id === editingItem.id)
-        if (index !== -1) {
-          items[index] = editingItem
-        }
+    const items = getMenuItems()
+    if (editingItem.isNew) {
+      items.push(editingItem)
+    } else {
+      const index = items.findIndex((i) => i.id === editingItem.id)
+      if (index !== -1) {
+        items[index] = editingItem
       }
-
-      await setMenuItems(items)
-      setMenuItemsState(items)
-      setEditingItem(null)
-      setShowAddForm(false)
-    } catch (error) {
-      console.error('[v0] Error saving menu item:', error)
-      alert('Error saving menu item. Please try again.')
     }
+
+    setMenuItems(items)
+    setMenuItemsState(items)
+    setEditingItem(null)
+    setShowAddForm(false)
   }
 
-  const handleDeleteMenuItem = async (id: string) => {
+  const handleDeleteMenuItem = (id: string) => {
     if (confirm('Are you sure you want to delete this item?')) {
-      try {
-        await removeMenuItem(id)
-        const updated = await getMenuItems()
-        setMenuItemsState(updated)
-      } catch (error) {
-        console.error('[v0] Error deleting menu item:', error)
-        alert('Error deleting menu item. Please try again.')
-      }
+      removeMenuItem(id)
+      setMenuItemsState(getMenuItems())
     }
   }
 
   // Order Management
-  const handleUpdateOrderStatus = async (orderId: string, status: Order['status']) => {
-    try {
-      await updateOrderStatus(orderId, status)
-      const updated = await getOrders()
-      setOrdersState(updated)
-    } catch (error) {
-      console.error('[v0] Error updating order status:', error)
-      alert('Error updating order status. Please try again.')
-    }
+  const handleUpdateOrderStatus = (orderId: string, status: Order['status']) => {
+    updateOrderStatus(orderId, status)
+    setOrdersState(getOrders())
   }
 
   const totalRevenue = orders.reduce((sum, o) => sum + o.totalPrice, 0)
   const totalOrders = orders.length
   const deliveredOrders = orders.filter((o) => o.status === 'delivered').length
 
+  if (!isAuthenticated) {
+    return (
+      <main className="min-h-screen bg-gradient-to-br from-background via-blue-50 to-background flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/30 backdrop-blur-sm"></div>
+        <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl p-8 border-2 border-accent">
+          <h2 className="text-2xl font-playfair font-bold text-primary mb-2">Admin Access</h2>
+          <p className="text-muted-foreground mb-6">Enter your credentials to continue</p>
+
+          <form onSubmit={handleAdminLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-semibold text-foreground mb-2">Admin Key</label>
+              <input
+                type="password"
+                value={adminKey}
+                onChange={(e) => setAdminKey(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-border rounded-lg focus:outline-none focus:border-primary transition"
+                placeholder="Enter admin key"
+                disabled={loginLoading}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-foreground mb-2">Password</label>
+              <input
+                type="password"
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-border rounded-lg focus:outline-none focus:border-primary transition"
+                placeholder="Enter password"
+                disabled={loginLoading}
+              />
+            </div>
+
+            {loginError && (
+              <div className="bg-red-50 border-2 border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                {loginError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loginLoading || !adminKey || !adminPassword}
+              className="w-full bg-primary text-white font-bold py-3 rounded-lg hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loginLoading ? 'Verifying...' : 'Access Dashboard'}
+            </button>
+          </form>
+
+          <p className="text-xs text-muted-foreground text-center mt-4">
+            This admin section is protected. Only authorized users can access.
+          </p>
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-background via-blue-50 to-background">
-      <AdminHeader />
       <Navigation />
+
+      {/* Admin Header with Logout */}
+      <div className="bg-white border-b-2 border-accent shadow-md">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+          <h2 className="font-playfair font-bold text-primary">Secure Admin Portal</h2>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 bg-red-100 hover:bg-red-200 text-red-700 font-bold px-4 py-2 rounded-lg transition"
+          >
+            <LogOut size={18} />
+            Logout
+          </button>
+        </div>
+      </div>
 
       <section className="max-w-7xl mx-auto px-4 py-12">
         <div className="mb-12">
@@ -189,16 +323,6 @@ export default function AdminPanel() {
             }`}
           >
             Customers & Rewards
-          </button>
-          <button
-            onClick={() => setTab('security')}
-            className={`px-6 py-3 font-bold border-b-4 transition ${
-              tab === 'security'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-primary'
-            }`}
-          >
-            Security & Audit
           </button>
         </div>
 
@@ -491,14 +615,6 @@ export default function AdminPanel() {
                 </div>
               </div>
             )}
-          </div>
-        )}
-
-        {/* Security & Audit */}
-        {tab === 'security' && (
-          <div>
-            <h2 className="text-2xl font-playfair font-bold text-primary mb-6">Security & Audit Logs</h2>
-            <AuditLogsViewer />
           </div>
         )}
       </section>

@@ -45,7 +45,7 @@ export default function OrderPage() {
   const [deliveryAddress, setDeliveryAddress] = useState('')
   const [deliveryDate, setDeliveryDate] = useState('')
   const [timeSlot, setTimeSlot] = useState('')
-  const [paymentMethod, setPaymentMethod] = useState<'upi' | 'cod'>('cod')
+  const [paymentMethod, setPaymentMethod] = useState<'online' | 'cod'>('cod')
   const [orderingAvailable, setOrderingAvailable] = useState(true)
 
   useEffect(() => {
@@ -360,7 +360,7 @@ export default function OrderPage() {
                   <div>
                     <label className="block text-sm font-semibold text-foreground mb-2">Payment Method</label>
                     <div className="space-y-2">
-                      <label className="flex items-center gap-3 p-3 border-2 border-border rounded-lg cursor-pointer hover:bg-accent/5">
+                      <label className={`flex items-center gap-3 p-3 border-2 rounded-lg cursor-pointer transition ${paymentMethod === 'cod' ? 'border-primary bg-primary/5' : 'border-border hover:bg-accent/5'}`}>
                         <input
                           type="radio"
                           name="payment"
@@ -370,18 +370,42 @@ export default function OrderPage() {
                         />
                         <span className="font-semibold">Cash on Delivery</span>
                       </label>
-                      <label className="flex items-center gap-3 p-3 border-2 border-border rounded-lg cursor-pointer hover:bg-accent/5">
+                      <label className={`flex items-center gap-3 p-3 border-2 rounded-lg cursor-pointer transition ${paymentMethod === 'online' ? 'border-primary bg-primary/5' : 'border-border hover:bg-accent/5'}`}>
                         <input
                           type="radio"
                           name="payment"
-                          value="upi"
-                          checked={paymentMethod === 'upi'}
-                          onChange={(e) => setPaymentMethod(e.target.value as 'upi')}
+                          value="online"
+                          checked={paymentMethod === 'online'}
+                          onChange={(e) => setPaymentMethod(e.target.value as 'online')}
                         />
                         <span className="font-semibold">UPI Payment</span>
                       </label>
                     </div>
                   </div>
+
+                  {paymentMethod === 'online' && (
+                    <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 space-y-3">
+                      <p className="text-sm font-semibold text-blue-900">UPI Payment Details</p>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-gray-700">Amount to Pay:</span>
+                          <span className="font-bold text-primary">₹{calculateTotal()}</span>
+                        </div>
+                        <div className="bg-white rounded p-2 text-center">
+                          <p className="text-xs text-gray-600 mb-1">UPI ID:</p>
+                          <p className="font-mono font-semibold text-blue-700">freshtelugu@upi</p>
+                        </div>
+                        <p className="text-xs text-blue-800 text-center">
+                          Pay via any UPI app (Google Pay, PhonePe, Paytm, etc.)
+                        </p>
+                      </div>
+                      <div className="bg-yellow-50 border border-yellow-200 rounded p-2">
+                        <p className="text-xs text-yellow-800 text-center">
+                          After payment, your order will be confirmed automatically.
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   <button
                     type="submit"
@@ -443,9 +467,18 @@ export default function OrderPage() {
               ))}
             </div>
 
-            <p className="text-sm text-muted-foreground mb-6">
-              Your order will be delivered in your selected time slot. You can track it in your dashboard.
-            </p>
+            {paymentMethod === 'online' ? (
+              <div className="space-y-2 mb-6">
+                <p className="text-sm text-blue-700 font-semibold">Payment Status: Pending</p>
+                <p className="text-sm text-muted-foreground">
+                  Please complete your UPI payment to confirm this order. Once payment is confirmed, your order will be delivered in your selected time slot.
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground mb-6">
+                Your order will be delivered in your selected time slot. Cash payment to be made at delivery.
+              </p>
+            )}
 
             <div className="space-y-3">
               <Link
